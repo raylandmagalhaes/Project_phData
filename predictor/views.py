@@ -40,6 +40,7 @@ from django.views.decorators.csrf import csrf_exempt
 # <BASE_DIR>/predictor/views.py, so the parent of the parent is BASE_DIR.
 BASE_DIR = Path(__file__).resolve().parents[1]
 
+
 def _get_env_path(env_name: str, default: str) -> Path:
     """Return a Path from an environment variable or a default.
 
@@ -166,10 +167,16 @@ def predict_view(request: HttpRequest) -> JsonResponse:
             records = data
         else:
             raise ValueError("Invalid JSON payload: must be an object or list of objects")
-        predictions = _predict(records, minimal=False)
+        # Generate predictions from the loaded model and build a response
+        # that includes the model version.  The model version is read from
+        # the ``MODEL_VERSION`` environment variable (defaulting to
+        # "unknown" if not set).
+        prediction = _predict(records, minimal=False)
+        version = os.getenv("MODEL_VERSION", "unknown")
         response = {
+            "model_version": version,
             "features": records,
-            "predictions": predictions,
+            "prediction": prediction,
         }
         return JsonResponse(response)
     except Exception as exc:
@@ -196,10 +203,14 @@ def predict_core_view(request: HttpRequest) -> JsonResponse:
             records = data
         else:
             raise ValueError("Invalid JSON payload: must be an object or list of objects")
-        predictions = _predict(records, minimal=True)
+        # Generate predictions from the loaded model and include the model
+        # version in the response, mirroring the full‑feature endpoint.
+        prediction = _predict(records, minimal=True)
+        version = os.getenv("MODEL_VERSION", "unknown")
         response = {
+            "model_version": version,
             "features": records,
-            "prediction": predictions,
+            "prediction": prediction,
         }
         return JsonResponse(response)
     except Exception as exc:
