@@ -35,31 +35,13 @@ jobs:
           DJANGO_SETTINGS_MODULE: Project_phData.settings
         run: pytest --collect-only -q tests
 
-      - name: Debug paths
-        run: |
-          echo "PWD=$(pwd)"
-          ls -la
-          ls -la Project_phData || true
-          ls -la Project_phData/models || true
-          ls -la Project_phData/models/model || true
-          ls -la Project_phData/models/model_V2 || true
-          ls -la Project_phData/data || true
-          python - <<'PY'
-          import os, sys
-          for k in ["MODEL_PATH","MODEL_FEATURES_PATH","DEMOGRAPHICS_PATH"]:
-              print(k, "=", os.environ.get(k))
-          PY
-        env:
-          MODEL_PATH: Project_phData/models/model/model.pkl
-          MODEL_FEATURES_PATH: Project_phData/models/model/model_features.json
-          DEMOGRAPHICS_PATH: Project_phData/data/zipcode_demographics.csv
-
       - name: Run pytest
         env:
           DJANGO_SETTINGS_MODULE: Project_phData.settings
-          MODEL_PATH: Project_phData/models/model/model.pkl
-          MODEL_FEATURES_PATH: Project_phData/models/model/model_features.json
-          DEMOGRAPHICS_PATH: Project_phData/data/zipcode_demographics.csv
+          MODEL_PATH: models/model/model.pkl
+          MODEL_FEATURES_PATH: models/model/model_features.json
+          DEMOGRAPHICS_PATH: data/zipcode_demographics.csv
           MODEL_VERSION: ci
         run: pytest -q --disable-warnings --maxfail=1 tests
+
 
