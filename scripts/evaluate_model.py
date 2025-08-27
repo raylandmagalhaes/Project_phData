@@ -8,9 +8,13 @@ from sklearn import pipeline
 from sklearn import preprocessing
 from sklearn import metrics
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import scipy.stats as stats
 
-SALES_PATH = "../data/kc_house_data.csv"  # path to CSV with home sale data
-DEMOGRAPHICS_PATH = "../data/zipcode_demographics.csv"  # path to CSV with demographics
+
+SALES_PATH = "data/kc_house_data.csv"  # path to CSV with home sale data
+DEMOGRAPHICS_PATH = "data/zipcode_demographics.csv"  # path to CSV with demographics
 # List of columns (subset) that will be taken from home sale data
 SALES_COLUMN_SELECTION = [
     'price', 'bedrooms', 'bathrooms', 'sqft_living', 'sqft_lot', 'floors',
@@ -38,7 +42,7 @@ def load_data(
     data = pandas.read_csv(sales_path,
                            usecols=sales_column_selection,
                            dtype={'zipcode': str})
-    demographics = pandas.read_csv("../data/zipcode_demographics.csv",
+    demographics = pandas.read_csv(DEMOGRAPHICS_PATH,
                                    dtype={'zipcode': str})
 
     merged_data = data.merge(demographics, how="left",
@@ -82,7 +86,7 @@ def main():
         },
     }
 
-    # 5) Simple baseline (mean of training prices)
+    # Simple baseline (mean of training prices)
     mean_price = float(y_train.mean())
     yhat_base = np.full_like(y_test, mean_price, dtype=float)
     baseline = {
@@ -92,7 +96,7 @@ def main():
         "mean_price_train": mean_price,
     }
 
-    # 6) Print concise report
+    # Print concise report
     print("\n=== Baseline KNN Evaluation (random 80/20 split, seed=42) ===")
     print(f"Train: RMSE={results['train']['RMSE']:.0f}  "
           f"MAE={results['train']['MAE']:.0f}  R2={results['train']['R2']:.3f}  n={results['train']['n']}")
@@ -102,7 +106,33 @@ def main():
           f"MAE={baseline['MAE']:.0f}  R2={baseline['R2']:.3f}  "
           f"(mean train price = {baseline['mean_price_train']:.0f})")
 
-    # 7) Quick verdict
+    # Residuals analysis
+    residuals = y_test - yhat_test
+
+    # Create figure with 3 subplots
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+    # --- Plot 1: Residuals vs Predicted ---
+    axes[0].scatter(yhat_test, residuals, alpha=0.6)
+    axes[0].axhline(y=0, color='red', linestyle='--')
+    axes[0].set_xlabel("Predicted Values")
+    axes[0].set_ylabel("Residuals")
+    axes[0].set_title("Residuals vs Predicted")
+
+    # --- Plot 2: Histogram of Residuals ---
+    sns.histplot(residuals, kde=True, ax=axes[1], color="blue")
+    axes[1].set_xlabel("Residuals")
+    axes[1].set_title("Distribution of Residuals")
+
+    # --- Plot 3: Q-Q Plot ---
+    stats.probplot(residuals, dist="norm", plot=axes[2])
+    axes[2].set_title("Q-Q Plot")
+
+    # Adjust layout
+    plt.tight_layout()
+    plt.show()
+
+    # Quick verdict
     tr, te = results["train"], results["test"]
     verdict = []
     if tr["RMSE"] < te["RMSE"] * 0.8 and tr["R2"] > te["R2"] + 0.1:

@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime
+import numpy as np
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
@@ -99,6 +100,53 @@ CORE_FEATURES = [
 ]
 
 
+def _add_date_features(df: pd.DataFrame, date_col: str = "date", default_tz: str = "UTC") -> pd.DataFrame:
+    """
+    From 'YYYYMMDDThhmmss' strings, build ML-friendly date features.
+    If the date is missing, default to *today* (midnight, `default_tz`).
+    """
+    print("im here")
+    if date_col in df.columns:
+        sale_dt = pd.to_datetime(df[date_col], format="%Y%m%dT%H%M%S", errors="coerce")
+    else:
+        sale_dt = pd.Series(pd.NaT, index=df.index)
+
+    # Default any NaT to "today" at midnight in the chosen timezone
+    today = pd.Timestamp.now(tz=default_tz).normalize()
+    sale_dt = sale_dt.fillna(today)
+    print(sale_dt)
+    # Basic calendar features
+    df["sale_year"] = sale_dt.dt.year.astype("Int64")
+    df["sale_month"] = sale_dt.dt.month.astype("Int64")
+    df["sale_dayofweek"] = sale_dt.dt.dayofweek.astype("Int64")  # Monday=0
+    df["sale_quarter"] = sale_dt.dt.quarter.astype("Int64")
+    df["sale_dayofyear"] = sale_dt.dt.dayofyear.astype("Int64")
+    df["sale_isoweek"] = sale_dt.dt.isocalendar().week.astype("Int64")
+
+    # Seasonal cyclic encoding (helps linear/KNN models)
+    two_pi = 2 * np.pi
+    frac = (df["sale_dayofyear"].astype(float) - 1) / 365.25
+    df["sale_season_sin"] = np.sin(two_pi * frac)
+    df["sale_season_cos"] = np.cos(two_pi * frac)
+
+    # Age at sale (accounts for renovation when available)
+    if "yr_built" in df.columns:
+        yr_built = pd.to_numeric(df["yr_built"], errors="coerce").fillna(0).astype(float)
+        if "yr_renovated" in df.columns:
+            yr_reno = pd.to_numeric(df["yr_renovated"], errors="coerce").fillna(0).astype(float)
+            eff_year = np.where(yr_reno > 0, np.maximum(yr_built, yr_reno), yr_built)
+        else:
+            eff_year = yr_built
+        df["home_age_at_sale"] = (df["sale_year"].astype(float) - eff_year).clip(lower=0)
+    else:
+        df["home_age_at_sale"] = np.nan
+
+    # Remove the raw timestamp column if present
+    df.drop(columns=[date_col], inplace=True, errors="ignore")
+    print("DONE")
+    return df
+
+
 def _validate_required(records: Sequence[Dict[str, Any]], required: Sequence[str]) -> None:
     """Raise ValueError if any record is missing required keys or has nulls."""
     for i, rec in enumerate(records):
@@ -124,10 +172,10 @@ def _prepare_input(records: Sequence[Dict[str, Any]], minimal: bool) -> pd.DataF
     """Merge incoming records with demographic data and reorder columns.
 
     Args:
-        records: An iterable of  dictionaries representing input examples.
+        records: An iterable of dictionaries representing input examples.
         minimal: If True, expect only the core model features from the sales
-            data.  Otherwise, expect the full set of home attributes (minus
-            demographics) from ``future_unseen_examples.csv``.  In both
+            data. Otherwise, expect the full set of home attributes (minus
+            demographics) from ``future_unseen_examples.csv``. In both
             cases the function will merge in demographics using ``zipcode`` and
             discard any extraneous fields before ordering the DataFrame
             according to MODEL_FEATURES.
@@ -135,15 +183,16 @@ def _prepare_input(records: Sequence[Dict[str, Any]], minimal: bool) -> pd.DataF
     Returns:
         A pandas DataFrame ready to be passed directly into the model.
     """
-    # Convert to DataFrame.  If the caller forgets to wrap a single dict in
-    # a list, pandas will treat the keys as column names and each character
-    # as a row; enforce list explicitly.
+    # Enforce list explicitly
     df = pd.DataFrame(list(records))
 
     # Ensure zipcode exists and is a string for merging
     if "zipcode" not in df.columns:
         raise ValueError("Input data must include a 'zipcode' field")
     df["zipcode"] = df["zipcode"].astype(str)
+
+    # Expand 'date' into engineered features (defaults to today if missing/unparsable)
+    df = _add_date_features(df, date_col="date")
 
     # Merge with demographics
     merged = df.merge(DEMOGRAPHICS_DF, how="left", on="zipcode")
@@ -152,14 +201,8 @@ def _prepare_input(records: Sequence[Dict[str, Any]], minimal: bool) -> pd.DataF
     if "zipcode" in merged.columns:
         merged = merged.drop(columns=["zipcode"])
 
-    # For minimal endpoint we may get extra columns (shouldn't), drop all
-    # columns not in MODEL_FEATURES to avoid passing unknown features.  For
-    # full endpoint we also drop unknown columns.
-    model_input = merged.reindex(columns=MODEL_FEATURES, fill_value=0)
-
-    # Any missing columns will be filled with 0; ensure numeric types where
-    # possible
-    model_input = model_input.fillna(0)
+    # Reindex to the model feature set, fill missing with 0
+    model_input = merged.reindex(columns=MODEL_FEATURES, fill_value=0).fillna(0)
 
     return model_input
 

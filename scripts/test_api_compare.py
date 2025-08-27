@@ -80,9 +80,8 @@ def fetch_predictions(example: Dict[str, Any], url: str, max_attempts: int = 10)
 
 
 def main() -> None:
-    # Location of the data file relative to this script
-    base_dir = Path(__file__).resolve().parent
-    data_path = base_dir / "data" / "future_unseen_examples.csv"
+
+    data_path = "data/future_unseen_examples.csv"
     df = pd.read_csv(data_path)
     # Select the first few examples to test
     examples: List[Dict[str, Any]] = df.head(5).to_dict(orient="records")
