@@ -27,30 +27,20 @@ jobs:
 
       - name: Install deps
         run: |
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          elif [ -f Project_phData/requirements.txt ]; then
-            pip install -r Project_phData/requirements.txt
-          else
-            echo "requirements.txt not found"; exit 1
-          fi
+          pip install -r requirements.txt   # or Project_phData/requirements.txt if that's where it is
           pip install pytest-django
 
-      - name: Verify pytest & plugins
-        run: pytest --version
-
-      - name: Collect tests
+      - name: Collect tests (sanity)
         env:
           DJANGO_SETTINGS_MODULE: Project_phData.settings
-        run: pytest --collect-only -q
+        run: pytest --collect-only -q tests
 
       - name: Run pytest
-        working-directory: Project_phData
         env:
           DJANGO_SETTINGS_MODULE: Project_phData.settings
           MODEL_PATH: Project_phData/models/model/model.pkl
           MODEL_FEATURES_PATH: Project_phData/models/model/model_features.json
           DEMOGRAPHICS_PATH: Project_phData/data/zipcode_demographics.csv
-          MODEL_VERSION: "ci"
-        run: pytest -q --disable-warnings --maxfail=1
+          MODEL_VERSION: ci
+        run: pytest -q --disable-warnings --maxfail=1 tests
 
