@@ -14,29 +14,37 @@ jobs:
         with:
           python-version: '3.9'
 
+      - name: Show repo layout (debug)
+        run: |
+          echo "PWD=$(pwd)"
+          ls -la
+          echo "---- tests ----"
+          ls -la tests || true
+          echo "---- Project_phData ----"
+          ls -la Project_phData || true
+          echo "---- pytest.ini ----"
+          cat pytest.ini || echo "NO pytest.ini"
+
       - name: Install deps
         run: |
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          elif [ -f Project_phData/requirements.txt ]; then
+            pip install -r Project_phData/requirements.txt
+          else
+            echo "requirements.txt not found"; exit 1
+          fi
           pip install pytest-django
-          pip install pytest
 
-      - name: Show pytest & plugins
+      - name: Verify pytest & plugins
         run: pytest --version
 
-      - name: Sanity check layout
-        run: |
-          ls -la
-          ls -la Project_phData
-          ls -la Project_phData/tests || true
-
-      - name: Collect-only (debug if needed)
-        working-directory: Project_phData
+      - name: Collect tests
         env:
           DJANGO_SETTINGS_MODULE: Project_phData.settings
         run: pytest --collect-only -q
 
-      - name: Run pytest
-        working-directory: Project_phData
+      - name: Run tests
         env:
           DJANGO_SETTINGS_MODULE: Project_phData.settings
         run: pytest -q --disable-warnings --maxfail=1
