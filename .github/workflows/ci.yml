@@ -15,7 +15,24 @@ jobs:
           python-version: '3.9'
 
       - name: Install deps
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r Project_phData/requirements.txt
+          pip install pytest-django
+
+      - name: Show pytest & plugins
+        run: pytest --version
+
+      - name: Sanity check layout
+        run: |
+          ls -la
+          ls -la Project_phData
+          ls -la Project_phData/tests || true
+
+      - name: Collect-only (debug if needed)
+        working-directory: Project_phData
+        env:
+          DJANGO_SETTINGS_MODULE: Project_phData.settings
+        run: pytest --collect-only -q
 
       - name: Run pytest
         working-directory: Project_phData
