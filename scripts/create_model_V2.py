@@ -14,9 +14,9 @@ from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
 import numpy as np
 
-SALES_PATH = "data/kc_house_data.csv"  # path to CSV with home sale data
-DEMOGRAPHICS_PATH = "data/zipcode_demographics.csv"  # path to CSV with demographics
-OUTPUT_DIR = "models/model_V2"  # Directory where output artifacts will be saved
+SALES_PATH = "../data/kc_house_data.csv"  # path to CSV with home sale data
+DEMOGRAPHICS_PATH = "../data/zipcode_demographics.csv"  # path to CSV with demographics
+OUTPUT_DIR = "../models/model_V2"  # Directory where output artifacts will be saved
 IGNORE_COLS = ["date", "id"]
 #todo
 #The date could be used to calculate how old the home was when sold.

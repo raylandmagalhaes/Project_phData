@@ -86,6 +86,32 @@ except Exception as exc:
     DEMOGRAPHICS_DF = pd.DataFrame()
     _demographics_error = exc
 
+# Minimal feature set required by /predict_core/ (plus zipcode for the merge)
+CORE_FEATURES = [
+    "bedrooms",
+    "bathrooms",
+    "sqft_living",
+    "sqft_lot",
+    "floors",
+    "sqft_above",
+    "sqft_basement",
+    "zipcode",
+]
+
+
+def _validate_required(records: Sequence[Dict[str, Any]], required: Sequence[str]) -> None:
+    """Raise ValueError if any record is missing required keys or has nulls."""
+    for i, rec in enumerate(records):
+        missing = [k for k in required if k not in rec]
+        nulls = [k for k in required if k in rec and rec[k] is None]
+        if missing or nulls:
+            parts = []
+            if missing:
+                parts.append(f"missing={missing}")
+            if nulls:
+                parts.append(f"nulls={nulls}")
+            raise ValueError(f"Record {i} invalid: " + "; ".join(parts))
+
 
 def _load_model() -> Any:
     """Return the loaded model or raise a descriptive error."""
@@ -203,14 +229,16 @@ def predict_core_view(request: HttpRequest) -> JsonResponse:
             records = data
         else:
             raise ValueError("Invalid JSON payload: must be an object or list of objects")
-        # Generate predictions from the loaded model and include the model
-        # version in the response, mirroring the full‑feature endpoint.
-        prediction = _predict(records, minimal=True)
+
+        # Strict validation for core endpoint
+        _validate_required(records, CORE_FEATURES)
+
+        predictions = _predict(records, minimal=True)
         version = os.getenv("MODEL_VERSION", "unknown")
         response = {
             "model_version": version,
             "features": records,
-            "prediction": prediction,
+            "prediction": predictions,
         }
         return JsonResponse(response)
     except Exception as exc:
