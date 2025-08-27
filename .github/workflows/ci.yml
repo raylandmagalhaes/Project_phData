@@ -47,6 +47,7 @@ jobs:
       - name: Run pytest
         working-directory: Project_phData
         env:
+          DJANGO_SETTINGS_MODULE: Project_phData.settings
           MODEL_PATH: Project_phData/models/model/model.pkl
           MODEL_FEATURES_PATH: Project_phData/models/model/model_features.json
           DEMOGRAPHICS_PATH: Project_phData/data/zipcode_demographics.csv
