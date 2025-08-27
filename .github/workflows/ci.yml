@@ -14,17 +14,6 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Show repo layout (debug)
-        run: |
-          echo "PWD=$(pwd)"
-          ls -la
-          echo "---- tests ----"
-          ls -la tests || true
-          echo "---- Project_phData ----"
-          ls -la Project_phData || true
-          echo "---- pytest.ini ----"
-          cat pytest.ini || echo "NO pytest.ini"
-
       - name: Install deps
         run: |
           pip install -r requirements.txt   # or Project_phData/requirements.txt if that's where it is
