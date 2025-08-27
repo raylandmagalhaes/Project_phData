@@ -49,11 +49,13 @@ def get_example(index: int = 0) -> dict:
 def test_predict_valid_single_record(client: Client) -> None:
     """POSTing a single valid record to /predict/ should return a 200 and a prediction list."""
     record = get_example(0)
-    resp = client.post(
-        "/predict/",
-        data=json.dumps(record),
-        content_type="application/json",
-    )
+    resp = client.post("/predict/", data=json.dumps(record), content_type="application/json")
+    if resp.status_code != 200:
+        try:
+            print("SERVER ERROR BODY:", resp.json())
+        except Exception:
+            print("SERVER RAW BODY:", resp.content)
+
     assert resp.status_code == 200
     data = json.loads(resp.content.decode())
     assert "model_version" in data, "Response should include model_version"
