@@ -37,6 +37,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Add our custom app for model predictions
+    "predictor",
 ]
 
 MIDDLEWARE = [

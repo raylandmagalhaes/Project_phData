@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt   # or Project_phData/requirements.txt if that's where it is
+          pip install pytest-django
+
+      - name: Run pytest
+        env:
+          DJANGO_SETTINGS_MODULE: Project_phData.settings
+          MODEL_PATH: models/model/model.pkl
+          MODEL_FEATURES_PATH: models/model/model_features.json
+          DEMOGRAPHICS_PATH: data/zipcode_demographics.csv
+          MODEL_VERSION: ci
+        run: pytest -q --disable-warnings --maxfail=1 tests
+
+
