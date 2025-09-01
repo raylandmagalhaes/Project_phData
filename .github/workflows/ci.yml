@@ -19,11 +19,6 @@ jobs:
           pip install -r requirements.txt   # or Project_phData/requirements.txt if that's where it is
           pip install pytest-django
 
-      - name: Collect tests (sanity)
-        env:
-          DJANGO_SETTINGS_MODULE: Project_phData.settings
-        run: pytest --collect-only -q tests
-
       - name: Run pytest
         env:
           DJANGO_SETTINGS_MODULE: Project_phData.settings

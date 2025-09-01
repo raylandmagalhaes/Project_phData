@@ -1,40 +1,21 @@
 version: "3.8"
 
 services:
-  # The Django application served by Gunicorn.  The build context is the
-  # current directory which includes the Dockerfile.  Gunicorn is run
-  # directly rather than using the Django development server to provide a
-  # production‑ready WSGI server.  The number of workers defaults to 3
-  # and can be adjusted by setting the ``WEB_CONCURRENCY`` environment
-  # variable at runtime.
   web:
     build: .
     environment:
-      # Override the model and demographic file locations if desired.  These
-      # environment variables are consumed by predictor/views.py when
-      # loading the model.  You can mount a new model under ./models/model
-      # and update these paths without modifying the application code.
       MODEL_PATH: models/blue/model.pkl
       MODEL_FEATURES_PATH: models/blue/model_features.json
       DEMOGRAPHICS_PATH: data/zipcode_demographics.csv
       MODEL_VERSION: "1.0"
-    # Mount the model and demographics into the container read‑only so
-    # refreshing the files on the host updates the running container.
     volumes:
       - ./models/model:/app/blue/model:ro
       - ./data/zipcode_demographics.csv:/app/data/zipcode_demographics.csv:ro
     expose:
       - "8000"
-    # Optionally declare restart policy so the container restarts on failure
     restart: on-failure
+    command: gunicorn Project_phData.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
 
-  # ``web_green`` is a second instance of the Django application configured to
-  # serve a new version of the model.  During a blue‑green deployment you
-  # start this container alongside the existing ``web`` service and use
-  # NGINX to gradually shift traffic from the old model to the new one.  The
-  # environment variables point at the v2 model artifacts and the model
-  # directory is mounted read‑only from the host.  See ``README_2.md`` for
-  # more details on the deployment flow.
   web_green:
     build: .
     environment:
@@ -48,13 +29,8 @@ services:
     expose:
       - "8000"
     restart: on-failure
+    command: gunicorn Project_phData.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
 
-  # NGINX serves as a reverse proxy and load balancer in front of the
-  # Gunicorn application servers.  It listens on port 80 inside the
-  # container and maps port 8000 on the host to port 80.  If you scale the
-  # web service using ``docker-compose up --scale web=3`` NGINX will
-  # automatically round‑robin requests across the replicas as defined in
-  # nginx.conf.
   nginx:
     image: nginx:latest
     ports:
@@ -62,8 +38,5 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      # Depend on both the existing and new web services so that NGINX starts
-      # after they are up.  During a blue‑green deployment both services
-      # will be healthy when NGINX comes up.
       - web
       - web_green

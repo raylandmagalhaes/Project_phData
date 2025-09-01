@@ -20,12 +20,13 @@ A production‑ready example of serving ML predictions behind a Django + Gunicor
 6. [Model Versioning & Training](#model-versioning--training)
 7. [Run Locally](#run-locally)
 8. [API Reference](#api-reference)
-9. [Blue‑Green Deployment](#blue-green-deployment)
+9. [Performing a Blue-Green Deployment](#performing-a-blue-green-deployment)
 10. [Testing & Developer Tools](#testing--developer-tools)
 11. [Operations: Diagnostics & Scaling](#operations-diagnostics--scaling)
 12. [Monitoring](#monitoring)
 13. [Autoscaling Options](#autoscaling-options)
-14. [Troubleshooting](#troubleshooting)
+14. [CI](#ci)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -50,30 +51,42 @@ The API listens on `http://localhost:8000/` via NGINX.
 
 ## Requirements
 
+
 * Docker & Docker Compose
 * Python 3.10+ (local training)
+* Conda
 
+To activate the environment run: 
+```bash
+conda env create -f conda_environment.yml
+
+conda activate housing
+```
 ---
 
 ## Project Structure
 
 ```
+
 Project_phData/
-├─ Project_phData/
-│  ├─ Project_phData/         # Django settings/urls/wsgi/asgi
-│  ├─ predictor/               # API app (views for /predict & /predict_core)
-│  ├─ data/                    # Source datasets
-│  ├─ models/                  # Trained model artifacts
-│  ├─ scripts/                 # Train/evaluate/client scripts
-│  ├─ tests/                   # pytest API tests
-│  ├─ Dockerfile
-│  ├─ docker-compose.yml
-│  ├─ nginx.conf
-│  ├─ manage.py
-│  ├─ requirements.txt
-│  └─ pytest.ini
+├─ Project_phData/          # Django settings/urls/wsgi/asgi
+├─ predictor/               # API app (views for /predict & /predict_core)
+├─ data/                    # Source datasets
+├─ models/                  # Trained model artifacts
+│  ├─ blue/                 # Symlink blue -> model
+│  ├─ green/                # Symlink green -> model_V2
+│  ├─ model/                # Baseline model artifacts (v1)
+│  └─ model_V2/             # Improved model artifacts (v2)
+├─ scripts/                 # Train/evaluate/client scripts
+├─ tests/                   # pytest API tests
+├─ Dockerfile
+├─ docker-compose.yml
+├─ nginx.conf
+├─ manage.py
+├─ requirements.txt
+├─ pytest.ini
 ├─ phData.png
-└─ conda_environment.yml
+└─conda_environment.yml
 ```
 
 ---
@@ -85,9 +98,7 @@ Project_phData/
 
   * `web` = **blue** app (baseline model)
   * `web_green` = **green** app (candidate model)
-* **Model version string:** exposed in responses as `model_version`.
 
-> Tip: Adjust Gunicorn workers at runtime with signals (see [Operations](#operations-diagnostics--scaling)).
 
 ---
 
@@ -126,12 +137,12 @@ ls -l models   # blue -> model, green -> model_V2
 Update the *inactive* color to promote a new version later (e.g., repoint `blue` to `model_V3`).
 
 ### Train
-
+#### Baseline (v1)
 ```bash
-# Baseline (v1)
 python Project_phData/scripts/create_model.py
-
-# Extended (v2): tries KNN/RF/XGBoost and saves the best
+```
+#### Extended (v2): tries KNN/RF/XGBoost and saves the best
+```bash
 python Project_phData/scripts/create_model_V2.py
 ```
 
@@ -140,16 +151,14 @@ python Project_phData/scripts/create_model_V2.py
 ## Run Locally
 
 ```bash
-docker compose up --build -d
-# API served on http://localhost:8000/
+docker compose up --build -d 
 ```
-
+#### API served on http://localhost:8000/
 Services started:
 
-* `web` (blue) — serves v1 artifacts and returns `model_version="1.0"`
-* `web_green` (green) — serves v2 artifacts and returns `model_version="2.0"`
+* `web` (blue) — serves v1 artifacts and returns `model_version="v1"`
+* `web_green` (green) — serves v2 artifacts and returns `model_version="v2"`
 * `nginx` — reverse proxy with weighted upstream to blue/green
-
 ---
 
 ## API Reference
@@ -201,7 +210,7 @@ Services started:
 
 ```json
 {
-  "model_version": "2.0",
+  "model_version": "1.0",
   "features": [{ "...": "features used for prediction (not including engineered/demographic)"}],
   "prediction": [404549.0]
 }
@@ -218,80 +227,96 @@ Services started:
 
 ---
 
-## Blue‑Green Deployment
+## Performing a Blue-Green Deployment
 
-Safely run old & new model versions side‑by‑side and shift real traffic with zero downtime.
+1. **Start the existing stack.**  Bring up the current system as usual:
+   ```bash
+   docker-compose up --build -d
+   ```
+This starts the `web` (blue) and `nginx` services.  The API will be available at <http://localhost:8000>.
+* `docker-compose.yml` defines **two web services** (`web` and `web_green`), each mounting different model artifacts and exposing a different `MODEL_VERSION` string.
+* `nginx.conf` has a weighted upstream:
 
-1. **Start stack**
+  ```nginx
+  upstream django {
+      server web:8000 weight=10;        # blue (v1)
+      server web_green:8000 down;  # green (v2)
+  }
+  ```
+* NGINX listens on host **:8000** and round-robins by the configured weights.
 
-```bash
-docker-compose up --build -d
-# API at http://localhost:8000
-```
+**Typical rollout:**
 
-`docker-compose.yml` defines two web services (blue/green). `nginx.conf` routes to them with weights:
+1. **Train and save the new model.**  Use `create_model_V2.py` to train an updated model.  Save the pickled model and
+   feature list into `models/model_V2/` on the host.
+   ```bash
+   python scripts/create_model_V2.py
+   ```
+2. Start/update `web_green`:
 
-```nginx
-upstream django {
-  server web:8000 weight=10;      # blue (v1)
-  server web_green:8000 down;     # green (v2)
-}
-```
+   ```bash
+   docker-compose up --build -d web_green
+   ```
+3. Verify with logs and sample requests.
 
-2. **Bring up green**
+   ```bash
+   docker-compose logs -f web_green
+   ```
+4. Increase the green weight in `nginx.conf`, then reload:
+      ```nginx
+      upstream django {
+          server web:8000 weight=9;        # blue (v1)
+          server web_green:8000 weight=1;  # green (v2)
+      }
+      ```
+    
+   ```bash
+   docker-compose exec nginx nginx -s reload
+   ```
 
-```bash
-python Project_phData/scripts/create_model_V2.py
-docker-compose up --build -d web_green
-```
+5. **Adjust traffic weights.**  To shift more traffic to the new model,
+   edit `nginx.conf` and modify the weights in the `upstream django`
+   block.  For example, to route half of the requests to each version:
 
-Check logs & sample requests:
+   ```nginx
+   upstream django {
+       server web:8000 weight=5;
+       server web_green:8000 weight=5;
+   }
+   ```
 
-```bash
-docker-compose logs -f web_green
-```
+   After editing, reload NGINX inside the running container:
 
-3. **Shift traffic gradually**
-   Adjust weights in `nginx.conf` and reload inside the running proxy:
+   ```bash
+   docker-compose exec nginx nginx -s reload
+   ```
 
-```nginx
-upstream django {
-  server web:8000 weight=9;
-  server web_green:8000 weight=1;
-}
-```
+   Repeat this process, gradually increasing the weight for `web_green`, until
+   you are satisfied with the new model’s performance.
 
-```bash
-docker-compose exec nginx nginx -s reload
-```
+6. When satisfied, stop blue or remove it, reload NGINX.
 
-Increase the green weight as confidence grows. For 50/50:
+   ```nginx
+   upstream django {
+       server web:8000 down;
+       server web_green:8000 weight=10;
+   }
+   ```
 
-```nginx
-upstream django {
-  server web:8000 weight=5;
-  server web_green:8000 weight=5;
-}
-```
-
-4. **Promote green**
-   When satisfied, disable blue and keep green:
-
-```nginx
-upstream django {
-  server web:8000 down;
-  server web_green:8000 weight=10;
-}
-```
-
-```bash
-docker-compose exec nginx nginx -s reload
-docker-compose stop web && docker-compose rm -f web
-```
-
-5. **Next model**
+   ```bash
+   docker-compose exec nginx nginx -s reload
+   ```
+   ```bash
+   docker-compose stop web
+   docker-compose rm -f web
+   ```
+   
+7. **Next model**
    Repoint the *inactive* color to the next artifacts (e.g., `model_V3`) and repeat.
 
+```bash
+ln -sfn model_V3 models/blue
+```
 ---
 
 ## Testing & Developer Tools
@@ -299,7 +324,7 @@ docker-compose stop web && docker-compose rm -f web
 * **pytest** from project root:
 
   ```bash
-  pytest -q
+  pytest -v
   ```
 * **Smoke test (single model):** `python scripts/test_api.py`
 * **Compare blue vs green:** `python scripts/test_api_compare.py` — alternates POSTs and buckets by `model_version` (useful when upstream weights are equal).
@@ -312,21 +337,24 @@ A quick checklist to see **what’s running**, **how it’s performing**, and **
 
 ### See what’s running
 
+#### Check services
 ```bash
 docker compose ps
-# Inspect Gunicorn processes (1 master + N workers)
+```
+#### Check workers
+```bash
 docker top project_phdata-web-1 | grep gunicorn
 docker top project_phdata-web_green-1 | grep gunicorn
 
-# Quick worker counts (subtract 1 for master)
 for c in project_phdata-web-1 project_phdata-web_green-1; do 
   echo "$c:"; p=$(docker top "$c" | grep -c gunicorn); echo "$((p-1)) workers"; done
 ```
 
+
 ### Resource snapshot
 
 ```bash
-docker stats --no-stream project_phdata-web-1 project_phdata-web_green-1 nginx
+docker stats --no-stream project_phdata-web-1 project_phdata-web_green-1
 ```
 
 **Rules of thumb**
@@ -344,15 +372,18 @@ docker compose logs web_green | tail -n 100
 
 ### Adjust Gunicorn workers live (no restart)
 
+#### Add a worker
 ```bash
-# Add a worker
 docker kill --signal=TTIN project_phdata-web-1
-# Remove a worker
+```
+#### Remove a worker
+```bash
 docker kill --signal=TTOU project_phdata-web-1
-# Verify
+```
+#### Verify
+```bash
 docker top project_phdata-web-1 | grep gunicorn
 ```
-
 > Replace with `project_phdata-web_green-1` to tune the green service.
 
 To make it **permanent**, set workers in `docker-compose.yml`:
@@ -363,91 +394,68 @@ command: gunicorn Project_phData.wsgi:application --bind 0.0.0.0:8000 --workers 
 
 ### Horizontal scaling (replicas)
 
+#### Scale up
 ```bash
-# Scale up
 docker compose up -d --scale web=3 --scale web_green=2
-# Scale down
-docker compose up -d --scale web=1 --scale web_green=1
+docker compose ps  
 ```
 
+#### Scale down
+```bash
+docker compose up -d --scale web=1 --scale web_green=1
+docker compose ps  
+```
 > **When to add workers:** If a single container is CPU‑bound but not maxing out system memory, increase Gunicorn `--workers`. This improves concurrency within one replica.
 > **When to add replicas:** If you want resilience, need to spread load across hosts, or are already saturating one container even with more workers, scale replicas with `--scale`. Replicas sit behind NGINX, which balances requests across them.
 
 ---
 
 ## Monitoring
-
-### New Relic APM (Django + Gunicorn)
-
-**What you get:** p95/p99 latency per endpoint, error tracking, traces, dashboards, and alerts.
-
-Install and run under New Relic:
-
+We can have a live view of CPU %, memory usage, network IO, and block IO for each container.
 ```bash
-pip install newrelic
-newrelic-admin generate-config YOUR_LICENSE_KEY newrelic.ini
-NEW_RELIC_CONFIG_FILE=newrelic.ini \
-NEW_RELIC_ENVIRONMENT=production \
-newrelic-admin run-program \
-  gunicorn Project_phData.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
+docker stats
 ```
+### New Relic APM (Django + Gunicorn) - *Not implemented*
 
-Docker Compose example (per service):
+New Relic APM can provide deeper application-level visibility, including:  
+- p95/p99 latency per endpoint  
+- Error tracking and distributed traces  
+- Custom dashboards  
+- Alerts on key performance indicators  
 
-```yaml
-services:
-  web:
-    environment:
-      NEW_RELIC_LICENSE_KEY: "${NEW_RELIC_LICENSE_KEY}"
-      NEW_RELIC_APP_NAME: "House Price API (blue)"
-      NEW_RELIC_ENVIRONMENT: "production"
-      NEW_RELIC_LOG: "stdout"
-    volumes:
-      - ./newrelic.ini:/app/newrelic.ini:ro
-    command: >
-      newrelic-admin run-program
-      gunicorn Project_phData.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
+### AWS CloudWatch (when running on AWS)
 
-  web_green:
-    environment:
-      NEW_RELIC_LICENSE_KEY: "${NEW_RELIC_LICENSE_KEY}"
-      NEW_RELIC_APP_NAME: "House Price API (green)"
-      NEW_RELIC_ENVIRONMENT: "production"
-      NEW_RELIC_LOG: "stdout"
-    volumes:
-      - ./newrelic.ini:/app/newrelic.ini:ro
-    command: >
-      newrelic-admin run-program
-      gunicorn Project_phData.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
-```
+CloudWatch can be used to monitor both infrastructure and application performance:  
 
-### AWS CloudWatch (if on AWS)
+- **Infrastructure metrics:**  
+  CPU, memory (via CloudWatch Agent), and network usage for ECS/EC2  
 
-* Infra metrics: CPU, memory (via CloudWatch Agent), network for ECS/EC2
-* ALB latency percentiles: `TargetResponseTime` p50/p90/p95/p99 + 5xx counts
-* Alarms: p95 high, 5xx high, CPU high → notify via SNS/Slack/email
-* Optional: push custom app latency from Django middleware with `PutMetricData`
+- **Application Load Balancer metrics:**  
+  Latency percentiles (`TargetResponseTime` p50/p90/p95/p99) and 5xx error counts  
+
+- **Alarms:**  
+  Trigger on high p95 latency, elevated 5xx errors, or sustained high CPU.  
+  Notifications can be sent via SNS → Slack/email.  
 
 ---
 
-## Autoscaling Options
+
+## Autoscaling Options 
 
 This service is containerized and stateless (models mounted read‑only), which makes it autoscaling‑friendly.
 
-### A) Manual (Docker Compose + NGINX)
+### Kubernetes HPA (Horizontal Pod Autoscaler)
 
-```bash
-# Scale up
-docker compose up -d --scale web=3 --scale web_green=2
-# Scale down
-docker compose up -d --scale web=1 --scale web_green=1
-```
+The **Horizontal Pod Autoscaler (HPA)** automatically adjusts the number of pod replicas in a Deployment (or StatefulSet/ReplicaSet) based on observed resource usage or custom metrics. This helps ensure the application scales up under load and scales down to save costs when idle.
 
-> See also: [Horizontal scaling (replicas)](#horizontal-scaling-replicas) for the same command in the Ops section.
+#### How it works
+- The **metrics server** collects resource usage data.  
+- The HPA controller compares current usage against the defined target (e.g., average CPU utilization = 70%).  
+- If usage is above target, more replicas are added; if below, replicas are reduced (within min/max limits).  
+- Scaling actions are gradual, to avoid flapping (rapid up/down scaling).  
 
-### B) Kubernetes HPA
-
-Attach an HPA to your Deployment to adjust replicas automatically based on CPU or custom metrics:
+#### Example: CPU-based scaling
+The following manifest configures autoscaling between 2 and 10 replicas based on average CPU utilization:
 
 ```yaml
 apiVersion: autoscaling/v2
@@ -470,22 +478,56 @@ spec:
         averageUtilization: 70
 ```
 
-**Design notes:** keep the service stateless, add `readinessProbe`, set requests/limits, and expose a custom metric for latency‑aware scaling (e.g., p95 via Prometheus Adapter).
+This means:  
+- Start with at least 2 replicas.  
+- Allow scaling up to 10 replicas.  
+- Add/remove pods so that the **average CPU utilization across all pods stays around 70%**.  
 
-### C) AWS ECS/Fargate Service Auto Scaling
+#### Best practices & design notes
+1. **Keep services stateless**  
+   - Store state in external systems (databases, caches, object storage).  
+   - This ensures pods can be killed/restarted without data loss.  
 
-Use CloudWatch target tracking on CPU or ALB metrics (`RequestCountPerTarget`, `TargetResponseTime (p95)`) to add/remove tasks; ECS drains tasks gracefully during scale actions.
+2. **Define resource requests & limits**  
+   - Always set `resources.requests.cpu/memory` and `resources.limits.cpu/memory`.  
+   - This allows the scheduler and HPA to make accurate scaling decisions.  
 
-### D) Safety & Rollback
+3. **Add health probes**  
+   - `readinessProbe`: ensures traffic is only routed to pods that are ready.  
+   - `livenessProbe`: restarts unhealthy pods automatically.  
 
-Use the built‑in blue‑green pattern, keep graceful timeouts, prefer 429 on overload, and alert on p95/error rates/CPU.
+4. **Use custom metrics (beyond CPU/memory)**  
+   - CPU/memory are good defaults, but may not reflect user experience.  
+   - For latency-aware scaling, expose metrics like **p95 response time** or **queue length** via Prometheus, then configure HPA with a **Prometheus Adapter**.  
+
+5. **Test scaling thresholds**  
+   - Run load tests to validate your min/max settings and target thresholds.  
+   - Ensure scaling actions happen early enough to prevent request failures.  
 
 ---
+
+## CI
+
+Continuous Integration (CI) is set up using **GitHub Actions** to automatically run tests on every `push` and `pull_request`. This ensures code quality and catches errors early in the development cycle.
+
+### Workflow Overview
+
+- **Trigger events:**  
+  Runs on all pushes and pull requests.  
+
+- **Environment:**  
+  Uses the latest Ubuntu runner with Python 3.9.  
+
+- **Steps:**  
+  1. **Checkout repository** – pulls the code into the runner.  
+  2. **Set up Python** – installs Python 3.9.  
+  3. **Install dependencies** – installs project requirements and `pytest-django`.
+  4. **Run tests** – executes the test suite with environment variables (model paths, dataset paths, etc.).  
+
 
 ## Troubleshooting
 
 * **HTTP 400 with `{ "error": ... }`** — Bad/missing fields (e.g., `zipcode`), non‑JSON body, or model failed to load. Check app logs and confirm model artifacts exist and match the expected `model_features.json` order.
-* **Green receives no traffic** — Ensure `web_green` is running and not marked `down` in `nginx.conf`; reload NGINX after edits.
 * **High latency / timeouts** — Check CPU and p95; add a Gunicorn worker or scale replicas; investigate slow endpoints in APM.
 
 ---
