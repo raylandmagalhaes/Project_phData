@@ -28,7 +28,7 @@ def main() -> None:
     data_path = "data/future_unseen_examples.csv"
     df = pd.read_csv(data_path)
     # Select the first few examples
-    examples = df.head(3).to_dict(orient="records")
+    examples = df.head(5).to_dict(orient="records")
 
     # Endpoints
     base_url = os.getenv("API_BASE", "http://localhost:8000")

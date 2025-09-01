@@ -6,7 +6,7 @@ endpoints defined in the ``predictor`` app.  They verify correct
 behaviour for valid requests, input schema validation, and error handling.
 Run these tests from the project root using ``pytest``:
 
-.. code-block:: bash
+ code-block:: bash
 
     pytest -q
 
@@ -22,8 +22,6 @@ import pytest
 # evaluate this once at module import time.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "Project_phData.settings")
 
-import django  # noqa: E402  # isort:skip
-# django.setup()  # noqa: E402  # isort:skip
 
 from django.test import Client  # noqa: E402  # isort:skip
 from django.conf import settings  # noqa: E402  # isort:skip
