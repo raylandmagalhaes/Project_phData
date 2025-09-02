@@ -10,8 +10,14 @@ from . import utils
 
 CORE_FEATURES = utils.CORE_FEATURES
 
+
+def health_view(request: HttpRequest) -> JsonResponse:
+    return JsonResponse({"status": "ok"})
+
+
 def _get_model_version() -> str:
     return os.getenv("MODEL_VERSION", "unknown")
+
 
 @csrf_exempt
 def predict_view(request: HttpRequest) -> JsonResponse:
@@ -30,6 +36,7 @@ def predict_view(request: HttpRequest) -> JsonResponse:
         })
     except Exception as exc:
         return JsonResponse({"error": str(exc)}, status=400)
+
 
 @csrf_exempt
 def predict_core_view(request: HttpRequest) -> JsonResponse:

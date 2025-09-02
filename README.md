@@ -1,6 +1,5 @@
-# House Price Prediction API — Project\_phData
-
-A production‑ready example of serving ML predictions behind a Django + Gunicorn API with an NGINX reverse proxy. It includes:
+![phData Logo](phData.png "phData Logo")
+# House Price Prediction API — Project_phData
 
 * Model training scripts with versioning (baseline v1, v2+)
 * HTTP prediction service (`/predict`, `/predict_core`)
@@ -32,20 +31,25 @@ A production‑ready example of serving ML predictions behind a Django + Gunicor
 
 ## Quick Start
 
+Build & start
 ```bash
-# 1) Build & start
 docker compose up --build -d
-
-# 2) Verify services
-docker compose ps
-
-# 3) Hit the API
-curl -s http://localhost:8000/predict_core -X POST -H 'Content-Type: application/json' \
-  -d '{"bedrooms":3,"bathrooms":1,"sqft_living":1180,"sqft_lot":5650,"floors":1,
-       "sqft_above":1180,"sqft_basement":0,"zipcode":"98178"}'
 ```
 
-The API listens on `http://localhost:8000/` via NGINX.
+Verify services
+```bash
+docker compose ps
+```
+
+Hit the API
+```bash
+curl -s http://localhost:8000/predict_core/ -X POST -H 'Content-Type: application/json' -d '{"bedrooms":3,"bathrooms":1,"sqft_living":1180,"sqft_lot":5650,"floors":1,"sqft_above":1180,"sqft_basement":0,"zipcode":"98178"}'
+```
+
+Check health
+```bash
+curl -s http://localhost:8000/health/
+```
 
 ---
 
@@ -59,9 +63,12 @@ The API listens on `http://localhost:8000/` via NGINX.
 To activate the environment run: 
 ```bash
 conda env create -f conda_environment.yml
+```
 
+```bash
 conda activate housing
 ```
+
 ---
 
 ## Project Structure
@@ -93,12 +100,58 @@ Project_phData/
 
 ## Configuration & Environment
 
-* **Ports:** NGINX exposes the API on host port **8000**.
-* **Service roles:**
+- Port: API exposed on host port **8000** via NGINX.
+- Service roles:
+  - `web` = blue app
+  - `web_green` = green app
+ - Docker Compose reads variables from a `.env` file that you create by copying
+   the supplied `.env.demo`.  The Compose file uses `${VAR}` placeholders,
+   so values defined in `.env` override the defaults baked into
+   `docker-compose.yml`.  A second file, `.env.demo`, contains only
+   non‑sensitive values and is used by the demo scripts described later.
 
-  * `web` = **blue** app (baseline model)
-  * `web_green` = **green** app (candidate model)
+| Variable | Description | Default |
+|---|---|---|
+| `DJANGO_SETTINGS_MODULE` | Django settings module | `Project_phData.settings` |
+| `SECRET_KEY` | Django secret key | `change-me` |
+| `DEMOGRAPHICS_PATH` | Demographics CSV | `data/zipcode_demographics.csv` |
+| `BLUE_MODEL_PATH` | Blue model pkl | `models/blue/model.pkl` |
+| `BLUE_MODEL_FEATURES_PATH` | Blue features JSON | `models/blue/model_features.json` |
+| `BLUE_MODEL_VERSION` | Blue version | `1.0` |
+| `GREEN_MODEL_PATH` | Green model pkl | `models/green/model.pkl` |
+| `GREEN_MODEL_FEATURES_PATH` | Green features JSON | `models/green/model_features.json` |
+| `GREEN_MODEL_VERSION` | Green version | `2.0` |
 
+Example `.env`
+```dotenv
+DJANGO_SETTINGS_MODULE=Project_phData.settings
+SECRET_KEY=change-me
+DEMOGRAPHICS_PATH=data/zipcode_demographics.csv
+BLUE_MODEL_PATH=models/blue/model.pkl
+BLUE_MODEL_FEATURES_PATH=models/blue/model_features.json
+BLUE_MODEL_VERSION=1.0
+GREEN_MODEL_PATH=models/green/model.pkl
+GREEN_MODEL_FEATURES_PATH=models/green/model_features.json
+GREEN_MODEL_VERSION=2.0
+```
+
+Demo mode (no secrets on disk)
+
+To spin up the stack for a demo without writing any secrets to disk,
+use the helper scripts included in the repository.  These scripts
+generate a random `SECRET_KEY` for the lifetime of the containers and
+read all other variables from `.env.demo`.
+
+```bash
+bash demo_up.sh
+```
+
+The command will start the containers in detached mode.  When
+finished, tear everything down using the provided script:
+
+```bash
+bash demo_down.sh
+```
 
 ---
 
@@ -129,21 +182,26 @@ Project_phData/
 Create role‑based symlinks so deployments point to **roles** instead of hardcoded version paths:
 
 ```bash
-ln -sfn model     models/blue
-ln -sfn model_V2  models/green
-ls -l models   # blue -> model, green -> model_V2
+ln -sfn model models/blue
 ```
 
-Update the *inactive* color to promote a new version later (e.g., repoint `blue` to `model_V3`).
+```bash
+ln -sfn model_V2 models/green
+```
+
+Inspect
+```bash
+ls -l models
+```
 
 ### Train
 #### Baseline (v1)
 ```bash
-python Project_phData/scripts/create_model.py
+python scripts/create_model.py
 ```
 #### Extended (v2): tries KNN/RF/XGBoost and saves the best
 ```bash
-python Project_phData/scripts/create_model_V2.py
+python scripts/create_model_V2.py
 ```
 
 ---
@@ -216,14 +274,7 @@ Services started:
 }
 ```
 
-### Errors
-
-* Invalid JSON / missing required fields (e.g., `zipcode`) → HTTP 400 with body:
-
-  ```json
-  { "error": "human-readable message…" }
-  ```
-* If the service fails to load a model at startup, requests return HTTP 400 with a helpful `error` message.
+Errors return HTTP 400 with `{"error": "message"}`.
 
 ---
 
@@ -333,130 +384,70 @@ ln -sfn model_V3 models/blue
 
 ## Operations: Diagnostics & Scaling
 
-A quick checklist to see **what’s running**, **how it’s performing**, and **what to scale** without downtime.
-
-### See what’s running
-
-#### Check services
+See services
 ```bash
 docker compose ps
 ```
-#### Check workers
-```bash
-docker top project_phdata-web-1 | grep gunicorn
-docker top project_phdata-web_green-1 | grep gunicorn
 
-for c in project_phdata-web-1 project_phdata-web_green-1; do 
-  echo "$c:"; p=$(docker top "$c" | grep -c gunicorn); echo "$((p-1)) workers"; done
+Resource snapshot
+```bash
+docker stats --no-stream
 ```
 
-
-### Resource snapshot
-
-```bash
-docker stats --no-stream project_phdata-web-1 project_phdata-web_green-1
-```
-
-**Rules of thumb**
-
-* CPU **> 70–80%** for minutes + rising p95 → add a worker or replica
-* CPU **< 30%** with low p95 → remove a worker/replica
-
-### Errors & health
-
+Logs
 ```bash
 docker compose logs nginx | tail -n 100
+```
+
+```bash
 docker compose logs web | tail -n 100
+```
+
+```bash
 docker compose logs web_green | tail -n 100
 ```
 
-### Adjust Gunicorn workers live (no restart)
-
-#### Add a worker
+Add a Gunicorn worker to a container
 ```bash
 docker kill --signal=TTIN project_phdata-web-1
 ```
-#### Remove a worker
+
+Remove a Gunicorn worker
 ```bash
 docker kill --signal=TTOU project_phdata-web-1
 ```
-#### Verify
+
+Verify workers
 ```bash
 docker top project_phdata-web-1 | grep gunicorn
 ```
-> Replace with `project_phdata-web_green-1` to tune the green service.
 
-To make it **permanent**, set workers in `docker-compose.yml`:
-
-```yaml
-command: gunicorn Project_phData.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 60
-```
-
-### Horizontal scaling (replicas)
-
-#### Scale up
+Scale up
 ```bash
 docker compose up -d --scale web=3 --scale web_green=2
-docker compose ps  
 ```
 
-#### Scale down
+Scale down
 ```bash
 docker compose up -d --scale web=1 --scale web_green=1
-docker compose ps  
 ```
-> **When to add workers:** If a single container is CPU‑bound but not maxing out system memory, increase Gunicorn `--workers`. This improves concurrency within one replica.
-> **When to add replicas:** If you want resilience, need to spread load across hosts, or are already saturating one container even with more workers, scale replicas with `--scale`. Replicas sit behind NGINX, which balances requests across them.
 
 ---
 
 ## Monitoring
-We can have a live view of CPU %, memory usage, network IO, and block IO for each container.
+
+Live container stats
 ```bash
 docker stats
 ```
-### New Relic APM (Django + Gunicorn) - *Not implemented*
 
-New Relic APM can provide deeper application-level visibility, including:  
-- p95/p99 latency per endpoint  
-- Error tracking and distributed traces  
-- Custom dashboards  
-- Alerts on key performance indicators  
-
-### AWS CloudWatch (when running on AWS)
-
-CloudWatch can be used to monitor both infrastructure and application performance:  
-
-- **Infrastructure metrics:**  
-  CPU, memory (via CloudWatch Agent), and network usage for ECS/EC2  
-
-- **Application Load Balancer metrics:**  
-  Latency percentiles (`TargetResponseTime` p50/p90/p95/p99) and 5xx error counts  
-
-- **Alarms:**  
-  Trigger on high p95 latency, elevated 5xx errors, or sustained high CPU.  
-  Notifications can be sent via SNS → Slack/email.  
+Cloud options include APM tools and AWS CloudWatch.
 
 ---
 
+## Autoscaling Options
 
-## Autoscaling Options 
-
-This service is containerized and stateless (models mounted read‑only), which makes it autoscaling‑friendly.
-
-### Kubernetes HPA (Horizontal Pod Autoscaler)
-
-The **Horizontal Pod Autoscaler (HPA)** automatically adjusts the number of pod replicas in a Deployment (or StatefulSet/ReplicaSet) based on observed resource usage or custom metrics. This helps ensure the application scales up under load and scales down to save costs when idle.
-
-#### How it works
-- The **metrics server** collects resource usage data.  
-- The HPA controller compares current usage against the defined target (e.g., average CPU utilization = 70%).  
-- If usage is above target, more replicas are added; if below, replicas are reduced (within min/max limits).  
-- Scaling actions are gradual, to avoid flapping (rapid up/down scaling).  
-
-#### Example: CPU-based scaling
-The following manifest configures autoscaling between 2 and 10 replicas based on average CPU utilization:
-
+Example Kubernetes HPA
 ```yaml
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -478,58 +469,28 @@ spec:
         averageUtilization: 70
 ```
 
-This means:  
-- Start with at least 2 replicas.  
-- Allow scaling up to 10 replicas.  
-- Add/remove pods so that the **average CPU utilization across all pods stays around 70%**.  
-
-#### Best practices & design notes
-1. **Keep services stateless**  
-   - Store state in external systems (databases, caches, object storage).  
-   - This ensures pods can be killed/restarted without data loss.  
-
-2. **Define resource requests & limits**  
-   - Always set `resources.requests.cpu/memory` and `resources.limits.cpu/memory`.  
-   - This allows the scheduler and HPA to make accurate scaling decisions.  
-
-3. **Add health probes**  
-   - `readinessProbe`: ensures traffic is only routed to pods that are ready.  
-   - `livenessProbe`: restarts unhealthy pods automatically.  
-
-4. **Use custom metrics (beyond CPU/memory)**  
-   - CPU/memory are good defaults, but may not reflect user experience.  
-   - For latency-aware scaling, expose metrics like **p95 response time** or **queue length** via Prometheus, then configure HPA with a **Prometheus Adapter**.  
-
-5. **Test scaling thresholds**  
-   - Run load tests to validate your min/max settings and target thresholds.  
-   - Ensure scaling actions happen early enough to prevent request failures.  
+Best practices: stateless services, resource requests/limits, health probes, and optional custom metrics.
 
 ---
 
 ## CI
 
-Continuous Integration (CI) is set up using **GitHub Actions** to automatically run tests on every `push` and `pull_request`. This ensures code quality and catches errors early in the development cycle.
+GitHub Actions run tests on pushes and PRs. A deploy job can build and ship via SSH on the default branch.
 
-### Workflow Overview
+High level steps
+- Checkout repository
+- Setup Python
+- Install dependencies
+- Run tests
+- Build and deploy on default branch
 
-- **Trigger events:**  
-  Runs on all pushes and pull requests.  
-
-- **Environment:**  
-  Uses the latest Ubuntu runner with Python 3.9.  
-
-- **Steps:**  
-  1. **Checkout repository** – pulls the code into the runner.  
-  2. **Set up Python** – installs Python 3.9.  
-  3. **Install dependencies** – installs project requirements and `pytest-django`.
-  4. **Run tests** – executes the test suite with environment variables (model paths, dataset paths, etc.).  
-
-
-## Troubleshooting
-
-* **HTTP 400 with `{ "error": ... }`** — Bad/missing fields (e.g., `zipcode`), non‑JSON body, or model failed to load. Check app logs and confirm model artifacts exist and match the expected `model_features.json` order.
-* **High latency / timeouts** — Check CPU and p95; add a Gunicorn worker or scale replicas; investigate slow endpoints in APM.
+Configure secrets such as `EC2_HOST`, `EC2_USER`, and `SSH_PRIVATE_KEY` for deployment.
 
 ---
 
+## Troubleshooting
+
+- HTTP 400 responses: check request fields and model artifacts
+- High latency: add a worker or scale replicas
+- Model load issues: confirm `MODEL_PATH` and `MODEL_FEATURES_PATH`
 

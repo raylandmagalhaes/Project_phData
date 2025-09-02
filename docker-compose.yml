@@ -4,10 +4,11 @@ services:
   web:
     build: .
     environment:
-      MODEL_PATH: models/blue/model.pkl
-      MODEL_FEATURES_PATH: models/blue/model_features.json
-      DEMOGRAPHICS_PATH: data/zipcode_demographics.csv
-      MODEL_VERSION: "1.0"
+      MODEL_PATH: ${BLUE_MODEL_PATH:-models/blue/model.pkl}
+      MODEL_FEATURES_PATH: ${BLUE_MODEL_FEATURES_PATH:-models/blue/model_features.json}
+      DEMOGRAPHICS_PATH: ${DEMOGRAPHICS_PATH:-data/zipcode_demographics.csv}
+      MODEL_VERSION: ${BLUE_MODEL_VERSION:-1.0}
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-Project_phData.settings}
     volumes:
       - ./models/model:/app/blue/model:ro
       - ./data/zipcode_demographics.csv:/app/data/zipcode_demographics.csv:ro
@@ -16,13 +17,22 @@ services:
     restart: on-failure
     command: gunicorn Project_phData.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
 
+    # Docker health‑check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
   web_green:
     build: .
     environment:
-      MODEL_PATH: models/green/model.pkl
-      MODEL_FEATURES_PATH: models/green/model_features.json
-      DEMOGRAPHICS_PATH: data/zipcode_demographics.csv
-      MODEL_VERSION: "2.0"
+      MODEL_PATH: ${GREEN_MODEL_PATH:-models/green/model.pkl}
+      MODEL_FEATURES_PATH: ${GREEN_MODEL_FEATURES_PATH:-models/green/model_features.json}
+      DEMOGRAPHICS_PATH: ${DEMOGRAPHICS_PATH:-data/zipcode_demographics.csv}
+      MODEL_VERSION: ${GREEN_MODEL_VERSION:-2.0}
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-Project_phData.settings}
     volumes:
       - ./models/model_V2:/app/models/green:ro
       - ./data/zipcode_demographics.csv:/app/data/zipcode_demographics.csv:ro
@@ -30,6 +40,14 @@ services:
       - "8000"
     restart: on-failure
     command: gunicorn Project_phData.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
+
+    # Health‑check endpoint configuration for the green deployment of the service.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   nginx:
     image: nginx:latest
