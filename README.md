@@ -384,17 +384,18 @@ ln -sfn model_V3 models/blue
 
 ## Operations: Diagnostics & Scaling
 
-See services
+### Diagnostics
+#### See services
 ```bash
 docker compose ps
 ```
 
-Resource snapshot
+#### Resource snapshot
 ```bash
 docker stats --no-stream
 ```
 
-Logs
+#### Logs
 ```bash
 docker compose logs nginx | tail -n 100
 ```
@@ -406,28 +407,30 @@ docker compose logs web | tail -n 100
 ```bash
 docker compose logs web_green | tail -n 100
 ```
-
-Add a Gunicorn worker to a container
+### Worker scaling
+Adjusting the number of Gunicorn worker processes running within a single container using signals (TTIN to add, TTOU to remove).
+#### Add a Gunicorn worker to a container
 ```bash
 docker kill --signal=TTIN project_phdata-web-1
 ```
 
-Remove a Gunicorn worker
+#### Remove a Gunicorn worker
 ```bash
 docker kill --signal=TTOU project_phdata-web-1
 ```
 
-Verify workers
+#### Verify workers
 ```bash
 docker top project_phdata-web-1 | grep gunicorn
 ```
-
-Scale up
+### Replica scaling
+Changing the number of running containers for the service.
+#### Scale up
 ```bash
 docker compose up -d --scale web=3 --scale web_green=2
 ```
 
-Scale down
+#### Scale down
 ```bash
 docker compose up -d --scale web=1 --scale web_green=1
 ```
@@ -445,35 +448,9 @@ Cloud options include APM tools and AWS CloudWatch.
 
 ---
 
-## Autoscaling Options
-
-Example Kubernetes HPA
-```yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: house-price-api
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: house-price-api
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-```
-
-Best practices: stateless services, resource requests/limits, health probes, and optional custom metrics.
-
 ---
 
-## CI
+## CI/CD
 
 GitHub Actions run tests on pushes and PRs. A deploy job can build and ship via SSH on the default branch.
 
@@ -482,7 +459,7 @@ High level steps
 - Setup Python
 - Install dependencies
 - Run tests
-- Build and deploy on default branch
+- Build and deploy to desired service
 
 Configure secrets such as `EC2_HOST`, `EC2_USER`, and `SSH_PRIVATE_KEY` for deployment.
 
@@ -494,3 +471,8 @@ Configure secrets such as `EC2_HOST`, `EC2_USER`, and `SSH_PRIVATE_KEY` for depl
 - High latency: add a worker or scale replicas
 - Model load issues: confirm `MODEL_PATH` and `MODEL_FEATURES_PATH`
 
+## Roadmap and Recommendations 
+
+- Authentication
+- Rate Limiting 
+- Caching
